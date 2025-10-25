@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grandad's Tile Adventure</title>
+  <style>
+    :root {
+      --bg: #0f172a; /* slate-900 */
+      --panel: #111827; /* gray-900 */
+      --ink: #e5e7eb; /* gray-200 */
+      --muted: #9ca3af; /* gray-400 */
+      --accent: #22d3ee; /* cyan-400 */
+      --accent-2: #a78bfa; /* violet-400 */
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+      background: radial-gradient(1200px 600px at 70% -10%, #1f2937 0%, var(--bg) 60%);
+      color: var(--ink); display: grid; place-items: center; padding: 24px;
+    }
+    .card { max-width: 900px; width: 100%; background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      border-radius: 16px; padding: 20px; }
+    h1 { margin: 0 0 8px; font-size: clamp(24px, 3vw, 34px); letter-spacing: 0.3px; }
+    p { color: var(--muted); margin: 6px 0 12px; }
+    .panel { display: grid; grid-template-columns: 1fr; gap: 16px; }
+
+    /* Info boxes */
+    .explain { display: grid; gap: 8px; background: rgba(2,6,23,0.6); border: 1px solid rgba(255,255,255,0.06); padding: 14px; border-radius: 12px; }
+    .explain b { color: #fff; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+
+    /* Compass */
+    .compass { display: grid; grid-template-columns: repeat(3, 68px); grid-auto-rows: 44px; gap: 10px; justify-content: center; }
+    .compass button, .bar button { appearance: none; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); color: #fff; border-radius: 12px; font-size: 14px; cursor: pointer; transition: 150ms ease;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+    }
+    .compass button:hover, .bar button:hover { transform: translateY(-1px); background: rgba(255,255,255,0.09); }
+    .compass button:active, .bar button:active { transform: translateY(0px) scale(0.99); }
+    .bar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+
+    /* Readouts */
+    .readouts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .box { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; }
+    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .value { font-size: 16px; color: #fff; margin-top: 4px; }
+
+    /* Mini legend */
+    .legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; background: rgba(34,211,238,0.12); color: #d0f6fb; padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(34,211,238,0.35); }
+    .pill.v { background: rgba(167,139,250,0.12); color: #efeaff; border-color: rgba(167,139,250,0.35); }
+
+    /* Simple footer */
+    .footer { margin-top: 8px; font-size: 12px; color: var(--muted); text-align: center; }
+
+    /* Grid preview */
+    .gridwrap { display: grid; gap: 10px; }
+    .grid { --n: 5; display: grid; grid-template-columns: repeat(var(--n), 48px); grid-auto-rows: 48px; gap: 8px; justify-content: center; }
+    .cell { display: grid; place-items: center; font-size: 12px; color: var(--muted); background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.08); border-radius: 10px; }
+    .cell.current { border-style: solid; border-color: var(--accent); color: #e8fdff; box-shadow: 0 0 0 2px rgba(34,211,238,0.2) inset; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Grandad's Tile Adventure 🧭</h1>
+    <p>Hey kiddo! This is the tiny world Grandad is building. It’s a dungeon made of little <b>tiles</b>. You can move <b>N, NE, E, SE, S, SW, W, NW</b>… and also <b>Up/Down</b> between floors.</p>
+
+    <div class="panel">
+      <div class="explain">
+        <div class="row"><b>How it works (super simple):</b></div>
+        <div>• The world is just <b>JSON files</b>, one per tile. The file name is the <b>coordinate</b> like <code>03-03-03.json</code>.</div>
+        <div>• Moving NE means we add <code>(+1, −1, 0)</code> to <code>(x, y, z)</code> (because on screens, y goes down).</div>
+        <div>• If the file for the next tile doesn’t exist yet, we’ll create it the first time we step there.</div>
+      </div>
+
+      <div class="readouts">
+        <div class="box"><div class="label">Current coordinate (x, y, z)</div><div id="coord" class="value">(3, 3, 3)</div></div>
+        <div class="box"><div class="label">Tile filename</div><div id="fname" class="value">03-03-03.json</div></div>
+        <div class="box"><div class="label">Last move</div><div id="last" class="value">—</div></div>
+      </div>
+
+      <div class="legend">
+        <div class="pill">Horizontal/Diagonal: N, NE, E, SE, S, SW, W, NW</div>
+        <div class="pill v">Vertical: Up (z+1), Down (z−1)</div>
+      </div>
+
+      <div class="gridwrap">
+        <div class="grid" id="grid"></div>
+        <div class="compass" aria-label="movement compass">
+          <button data-mv="nw">NW</button>
+          <button data-mv="n">N</button>
+          <button data-mv="ne">NE</button>
+          <button data-mv="w">W</button>
+          <button disabled>•</button>
+          <button data-mv="e">E</button>
+          <button data-mv="sw">SW</button>
+          <button data-mv="s">S</button>
+          <button data-mv="se">SE</button>
+        </div>
+        <div class="bar">
+          <button data-mv="up">Up</button>
+          <button data-mv="down">Down</button>
+          <button id="reset">Reset</button>
+        </div>
+      </div>
+
+      <div class="explain">
+        <b>What a tile JSON looks like:</b>
+<pre style="margin:8px 0 0; white-space:pre-wrap; color:#d1d5db; background: rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:10px; border-radius:10px;">
+{
+  "coords": [x, y, z],
+  "terrain": "stone corridor",
+  "exits": ["n", "ne", "e", "s", "down"],
+  "objects": ["torch bracket"],
+  "visited": true
+}
+</pre>
+      </div>
+
+      <div class="footer">Made with love by Grandad. Movement uses the screen/map convention: +x → east, +y → south (down).</div>
+    </div>
+  </div>
+
+  <script>
+    // Screen/map convention: +x = east (right), +y = south (down)
+    const deltas = {
+      n:  [ 0, -1, 0], ne: [ 1, -1, 0], e:  [ 1,  0, 0], se: [ 1,  1, 0],
+      s:  [ 0,  1, 0], sw: [-1,  1, 0], w:  [-1,  0, 0], nw: [-1, -1, 0],
+      up: [ 0,  0, 1], down:[ 0,  0,-1]
+    };
+
+    let pos = { x: 3, y: 3, z: 3 };
+
+    const elCoord = document.getElementById('coord');
+    const elName  = document.getElementById('fname');
+    const elLast  = document.getElementById('last');
+    const grid    = document.getElementById('grid');
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function fname(p) { return `${pad(p.x)}-${pad(p.y)}-${pad(p.z)}.json`; }
+
+    function renderReadouts(last="—") {
+      elCoord.textContent = `(${pos.x}, ${pos.y}, ${pos.z})`;
+      elName.textContent  = fname(pos);
+      elLast.textContent  = last;
+      renderMiniGrid();
+    }
+
+    function renderMiniGrid() {
+      const N = 5; // 5x5 preview
+      const half = Math.floor(N/2);
+      grid.innerHTML = '';
+      for (let gy = -half; gy <= half; gy++) {
+        for (let gx = -half; gx <= half; gx++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          const cx = pos.x + gx, cy = pos.y + gy;
+          cell.textContent = `(${cx},${cy})`;
+          if (gx === 0 && gy === 0) cell.classList.add('current');
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    function move(dir) {
+      const d = deltas[dir];
+      if (!d) return;
+      pos.x += d[0];
+      pos.y += d[1];
+      pos.z += d[2];
+      renderReadouts(dir.toUpperCase());
+    }
+
+    document.querySelectorAll('[data-mv]').forEach(btn => {
+      btn.addEventListener('click', () => move(btn.dataset.mv));
+    });
+
+    document.getElementById('reset').addEventListener('click', () => {
+      pos = { x: 3, y: 3, z: 3 };
+      renderReadouts('Reset');
+    });
+
+    // initial paint
+    renderReadouts('—');
+  </script>
+</body>
+</html>
