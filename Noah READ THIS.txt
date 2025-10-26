@@ -1,0 +1,15 @@
+when you load up the folder in your Visual Studio Code do this :
+
+in terminal typre :  git pull
+( this is part of that git install we did sunday ) what does this do it looks at the folder you're in and it updates it to sync 
+with our git hub repositery 
+
+so type in : git pull  ( and you're upto date with our colaberation)
+
+ok so you do some work on the files now what ? 
+
+git add .            (the . says git everything )
+git commit -m "describe your changes"       ( this says collect my stuff up  with a comment "hay Grandad i did this " kind of thing )
+git push ( push it upto the cloud or github repositary)
+
+
