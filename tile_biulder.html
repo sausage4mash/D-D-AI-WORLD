@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Grandad's Tile Adventure — Tile Builder</title>
+  <style>
+    :root {
+      --bg: #0f172a; /* slate-900 */
+      --panel: #111827; /* gray-900 */
+      --ink: #e5e7eb; /* gray-200 */
+      --muted: #9ca3af; /* gray-400 */
+      --accent: #22d3ee; /* cyan-400 */
+      --accent-2: #a78bfa; /* violet-400 */
+      --ok: #34d399; /* green-400 */
+      --warn: #fbbf24; /* amber-400 */
+      --bad: #f87171; /* red-400 */
+    }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif;
+      background: radial-gradient(1200px 600px at 70% -10%, #1f2937 0%, var(--bg) 60%);
+      color: var(--ink);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 16px;
+      gap: 12px;
+    }
+    header, footer { opacity: 0.9; }
+    header h1 { margin: 0; font-size: clamp(22px, 3vw, 30px); letter-spacing: 0.3px; }
+    header p { margin: 6px 0 0; color: var(--muted); }
+
+    .app { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; align-items: start; }
+    .card { background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      border-radius: 16px; padding: 16px; }
+
+    .readouts { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 10px; }
+    .box { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 10px; }
+    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .value { font-size: 16px; color: #fff; margin-top: 4px; }
+
+    /* Grid + compass */
+    .gridwrap { display: grid; gap: 10px; }
+    .grid { --n: 7; display: grid; grid-template-columns: repeat(var(--n), 44px); grid-auto-rows: 44px; gap: 8px; justify-content: start; }
+    .cell { display: grid; place-items: center; font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.08); border-radius: 10px; cursor: pointer; }
+    .cell:hover { border-color: rgba(255,255,255,0.2); }
+    .cell.current { border-style: solid; border-color: var(--accent); color: #e8fdff; box-shadow: 0 0 0 2px rgba(34,211,238,0.2) inset; }
+
+    .compass { display: grid; grid-template-columns: repeat(3, 68px); grid-auto-rows: 44px; gap: 10px; justify-content: start; }
+    button { appearance: none; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.04); color: #fff; border-radius: 12px; font-size: 14px; cursor: pointer; transition: 150ms ease; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03); padding: 8px 12px; }
+    button:hover { transform: translateY(-1px); background: rgba(255,255,255,0.09); }
+    button:active { transform: translateY(0px) scale(0.99); }
+
+    .bar { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    /* Builder panel */
+    .panel h2 { margin: 0 0 8px; font-size: 18px; }
+    .field { display: grid; gap: 6px; margin: 10px 0; }
+    .field label { font-size: 12px; color: var(--muted); }
+    input[type="text"], textarea, select { width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.03); color: #fff; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
+    textarea { min-height: 70px; resize: vertical; }
+
+    .exits { display: grid; grid-template-columns: repeat(5, minmax(60px,1fr)); gap: 6px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12); padding: 6px 8px; border-radius: 999px; font-size: 12px; }
+
+    .objects { display: grid; gap: 8px; }
+    .obj { border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.03); }
+    .obj header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .obj header .meta { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+    .obj .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .obj .children { padding-left: 10px; margin-top: 8px; border-left: 2px dashed rgba(255,255,255,0.12); }
+
+    .tiny { font-size: 12px; color: var(--muted); }
+    .good { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad  { color: var(--bad); }
+    .muted { color: var(--muted); }
+
+    .flex { display: flex; gap: 8px; align-items: center; }
+  </style>
+  <!-- JSZip for exporting many files as a single ZIP -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Grandad's Tile Adventure 🧭 — Tile Builder</h1>
+    <p>Build tiles as you move. Tiles are saved in <b>localStorage</b>. Export or import a world as JSON when you're happy.</p>
+  </header>
+
+  <div class="app">
+    <!-- LEFT: Map + Movement -->
+    <section class="card">
+      <div class="readouts">
+        <div class="box"><div class="label">Current coordinate (x, y, z)</div><div id="coord" class="value">(3, 3, 3)</div></div>
+        <div class="box"><div class="label">Tile filename</div><div id="fname" class="value">03-03-03.json</div></div>
+        <div class="box"><div class="label">Last move</div><div id="last" class="value">—</div></div>
+        <div class="box"><div class="label">Status</div><div id="status" class="value tiny muted">No unsaved changes</div></div>
+      </div>
+
+      <div class="gridwrap">
+        <div class="grid" id="grid"></div>
+        <div class="compass" aria-label="movement compass">
+          <button data-mv="nw">NW</button>
+          <button data-mv="n">N</button>
+          <button data-mv="ne">NE</button>
+          <button data-mv="w">W</button>
+          <button disabled>•</button>
+          <button data-mv="e">E</button>
+          <button data-mv="sw">SW</button>
+          <button data-mv="s">S</button>
+          <button data-mv="se">SE</button>
+        </div>
+        <div class="bar">
+          <button data-mv="up">Up</button>
+          <button data-mv="down">Down</button>
+          <button id="reset">Reset</button>
+        </div>
+      </div>
+
+      <div class="flex" style="margin-top:10px; flex-wrap: wrap;">
+        <button id="saveTile">Save Tile</button>
+        <button id="exportTile">Export This Tile</button>
+        <button id="exportZip">Export Tiles (ZIP)</button>
+        <label class="chip" for="importWorld"><input type="file" id="importWorld" accept="application/json" style="display:none">Import World JSON</label>
+        <button id="clearWorld" title="Removes all tiles from localStorage" class="bad">Clear World (local)</button>
+      </div>
+    </section>
+
+    <!-- RIGHT: Builder -->
+    <aside class="card panel">
+      <h2>Tile Builder</h2>
+      <div class="field">
+        <label for="terrain">Terrain / Theme</label>
+        <input id="terrain" type="text" placeholder="e.g. stone corridor, dusty attic, forest glade">
+      </div>
+      <div class="field">
+        <label for="desc">Description (one or two lines)</label>
+        <textarea id="desc" placeholder="What does the player see here?"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Exits</label>
+        <div id="exits" class="exits"></div>
+        <div class="tiny muted">Tick directions that are <b>possible</b> from this tile (not whether the neighbour exists yet).</div>
+      </div>
+
+      <div class="field">
+        <label>Objects & Containers</label>
+        <div id="objects" class="objects"></div>
+        <div class="bar" style="margin-top:6px;">
+          <button id="addItem">+ Add Item</button>
+          <button id="addContainer">+ Add Container</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="flex"><input type="checkbox" id="visited"> Mark as visited <span class="tiny muted">(useful for debugging)</span></label>
+      </div>
+
+      <div class="field">
+        <label for="notes">Notes (GM only)</label>
+        <textarea id="notes" placeholder="Any reminders for future…"></textarea>
+      </div>
+
+      <div class="tiny muted">Schema saved per tile:
+        <pre id="schemaPreview" style="white-space:pre-wrap; background: rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); padding:8px; border-radius:10px; color:#d1d5db; overflow:auto; max-height:160px;">{}</pre>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="tiny muted">Movement uses the screen/map convention: +x → east, +y → south (down). World is stored under the key <code>gta_world</code> in your browser.</footer>
+
+  <script>
+    // ===== Helpers =====
+    const el = sel => document.querySelector(sel);
+    const els = sel => Array.from(document.querySelectorAll(sel));
+    const pad = n => String(n).padStart(2,'0');
+    const fname = p => `${pad(p.x)}-${pad(p.y)}-${pad(p.z)}.json`;
+
+    function download(name, dataOrBlob){
+      const blob = dataOrBlob instanceof Blob ? dataOrBlob : new Blob([dataOrBlob], {type:'application/octet-stream'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+    }
+
+    // Directions map (screen convention)
+    const DIRS = ["n","ne","e","se","s","sw","w","nw","up","down"];
+    const deltas = { n:[0,-1,0], ne:[1,-1,0], e:[1,0,0], se:[1,1,0], s:[0,1,0], sw:[-1,1,0], w:[-1,0,0], nw:[-1,-1,0], up:[0,0,1], down:[0,0,-1] };
+
+    // ===== State =====
+    let pos = { x:3, y:3, z:3 };
+    let world = loadWorld(); // object of { filename: tile }
+    let dirty = false;
+
+    // ===== Default Tile Factory =====
+    function makeTile(p){
+      return {
+        coords: [p.x, p.y, p.z],
+        name: `Tile ${pad(p.x)}-${pad(p.y)}-${pad(p.z)}`,
+        terrain: "",
+        description: "",
+        exits: DIRS.reduce((m,d)=> (m[d]=false,m), {}), // {n:false, ne:false, ...}
+        objects: [], // array of items and containers
+        visited: false,
+        notes: ""
+      };
+    }
+
+    function loadWorld(){
+      try { return JSON.parse(localStorage.getItem('gta_world')||'{}'); }
+      catch { return {}; }
+    }
+    function saveWorld(){ localStorage.setItem('gta_world', JSON.stringify(world)); }
+
+    function getTile(p){
+      const key = fname(p);
+      if(!world[key]) world[key] = makeTile(p);
+      return world[key];
+    }
+
+    // ===== UI: Readouts & Grid =====
+    const elCoord = el('#coord');
+    const elName  = el('#fname');
+    const elLast  = el('#last');
+    const elStatus= el('#status');
+    const grid    = el('#grid');
+
+    function renderStatus(){
+      elStatus.textContent = dirty ? 'Unsaved changes' : 'No unsaved changes';
+      elStatus.className = `value tiny ${dirty? 'warn':'muted'}`;
+    }
+
+    function renderReadouts(last='—'){
+      elCoord.textContent = `(${pos.x}, ${pos.y}, ${pos.z})`;
+      elName.textContent  = fname(pos);
+      elLast.textContent  = last;
+      renderMiniGrid();
+      renderBuilder();
+      renderStatus();
+    }
+
+    function renderMiniGrid(){
+      const N = 7; const half = Math.floor(N/2);
+      grid.innerHTML = '';
+      for (let gy=-half; gy<=half; gy++) {
+        for (let gx=-half; gx<=half; gx++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          const cx = pos.x + gx, cy = pos.y + gy;
+          cell.textContent = `(${cx},${cy})`;
+          if (gx===0 && gy===0) cell.classList.add('current');
+          cell.addEventListener('click', ()=>{ pos.x=cx; pos.y=cy; renderReadouts('Jump'); });
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    function move(dir){
+      const d = deltas[dir]; if(!d) return;
+      pos.x += d[0]; pos.y += d[1]; pos.z += d[2];
+      renderReadouts(dir.toUpperCase());
+    }
+
+    els('[data-mv]').forEach(btn => btn.addEventListener('click', () => move(btn.dataset.mv)));
+    el('#reset').addEventListener('click', ()=>{ pos = {x:3,y:3,z:3}; renderReadouts('Reset'); });
+
+    // ===== Builder Panel =====
+    const elTerrain = el('#terrain');
+    const elDesc    = el('#desc');
+    const elExits   = el('#exits');
+    const elObjs    = el('#objects');
+    const elVisited = el('#visited');
+    const elNotes   = el('#notes');
+    const elSchema  = el('#schemaPreview');
+
+    function markDirty(){ dirty = true; renderStatus(); renderSchemaPreview(); }
+
+    // Render exits checkboxes
+    function renderExits(tile){
+      elExits.innerHTML = '';
+      const order = ["nw","n","ne","w","e","sw","s","se","up","down"];
+      order.forEach(d=>{
+        const id = `exit_${d}`;
+        const wrap = document.createElement('label');
+        wrap.className='chip';
+        wrap.innerHTML = `<input type="checkbox" id="${id}" ${tile.exits[d]?'checked':''}> ${d.toUpperCase()}`;
+        wrap.querySelector('input').addEventListener('change', (e)=>{ tile.exits[d]=e.target.checked; markDirty(); });
+        elExits.appendChild(wrap);
+      });
+    }
+
+    // Objects UI
+    function objRow(tile, obj, container){
+      const wrap = document.createElement('div');
+      wrap.className = 'obj';
+
+      const header = document.createElement('header');
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.textContent = obj.kind === 'container' ? 'Container' : 'Item';
+      const actions = document.createElement('div');
+      const btnDel = document.createElement('button'); btnDel.textContent = 'Delete';
+      btnDel.addEventListener('click', ()=>{ 
+        if(container){
+          const idx = container.contents.indexOf(obj); if(idx>-1) container.contents.splice(idx,1);
+        } else {
+          const idx = tile.objects.indexOf(obj); if(idx>-1) tile.objects.splice(idx,1);
+        }
+        markDirty(); renderBuilder();
+      });
+      actions.appendChild(btnDel);
+      header.append(meta, actions);
+
+      // fields
+      const row1 = document.createElement('div'); row1.className='row';
+      const name = document.createElement('input'); name.type='text'; name.placeholder='name'; name.value=obj.name||'';
+      const desc = document.createElement('input'); desc.type='text'; desc.placeholder='description'; desc.value=obj.description||'';
+      name.addEventListener('input', e=>{ obj.name=e.target.value; markDirty(); });
+      desc.addEventListener('input', e=>{ obj.description=e.target.value; markDirty(); });
+      row1.append(name, desc);
+
+      wrap.append(header, row1);
+
+      if(obj.kind==='item'){
+        const row2 = document.createElement('div'); row2.className='row';
+        const usable = document.createElement('input'); usable.type='text'; usable.placeholder='usable_on (optional)'; usable.value=obj.usable_on||'';
+        usable.addEventListener('input', e=>{ obj.usable_on=e.target.value; markDirty(); });
+        const tag = document.createElement('input'); tag.type='text'; tag.placeholder='tag e.g. key, coin'; tag.value=obj.tag||'';
+        tag.addEventListener('input', e=>{ obj.tag=e.target.value; markDirty(); });
+        row2.append(usable, tag);
+        wrap.append(row2);
+      }
+
+      if(obj.kind==='container'){
+        // capacity + children list
+        const row2 = document.createElement('div'); row2.className='row';
+        const cap = document.createElement('input'); cap.type='text'; cap.placeholder='capacity (note)'; cap.value=obj.capacity||'';
+        cap.addEventListener('input', e=>{ obj.capacity=e.target.value; markDirty(); });
+        const locked = document.createElement('select');
+        locked.innerHTML = `<option value="false">Unlocked</option><option value="true">Locked</option>`;
+        locked.value = String(!!obj.locked);
+        locked.addEventListener('change', e=>{ obj.locked = (e.target.value==='true'); markDirty(); });
+        row2.append(cap, locked);
+        wrap.append(row2);
+
+        const children = document.createElement('div'); children.className='children';
+        const heading = document.createElement('div'); heading.className='tiny muted'; heading.textContent='Contents:';
+        const list = document.createElement('div'); list.style.display='grid'; list.style.gap='6px';
+        (obj.contents||[]).forEach(child=> list.appendChild(objRow(tile, child, obj)));
+        const bar = document.createElement('div'); bar.className='bar';
+        const addChild = document.createElement('button'); addChild.textContent = '+ Add Item to Container';
+        addChild.addEventListener('click', ()=>{ obj.contents = obj.contents||[]; obj.contents.push({kind:'item', name:'', description:'', tag:''}); markDirty(); renderBuilder(); });
+        bar.appendChild(addChild);
+        children.append(heading, list, bar);
+        wrap.append(children);
+      }
+
+      return wrap;
+    }
+
+    function renderObjects(tile){
+      elObjs.innerHTML='';
+      tile.objects.forEach(o=> elObjs.appendChild(objRow(tile, o, null)));
+    }
+
+    function renderBuilder(){
+      const tile = getTile(pos);
+      elTerrain.value = tile.terrain||'';
+      elDesc.value    = tile.description||'';
+      elVisited.checked = !!tile.visited;
+      elNotes.value   = tile.notes||'';
+      renderExits(tile);
+      renderObjects(tile);
+      renderSchemaPreview();
+    }
+
+    function renderSchemaPreview(){
+      const tile = getTile(pos);
+      elSchema.textContent = JSON.stringify(tile, null, 2);
+    }
+
+    // Bind field changes
+    elTerrain.addEventListener('input', e=>{ getTile(pos).terrain = e.target.value; markDirty(); });
+    elDesc.addEventListener('input', e=>{ getTile(pos).description = e.target.value; markDirty(); });
+    elVisited.addEventListener('change', e=>{ getTile(pos).visited = e.target.checked; markDirty(); });
+    elNotes.addEventListener('input', e=>{ getTile(pos).notes = e.target.value; markDirty(); });
+
+    el('#addItem').addEventListener('click', ()=>{ getTile(pos).objects.push({kind:'item', name:'', description:'', tag:''}); markDirty(); renderObjects(getTile(pos)); renderSchemaPreview(); });
+    el('#addContainer').addEventListener('click', ()=>{ getTile(pos).objects.push({kind:'container', name:'', description:'', capacity:'', locked:false, contents:[]}); markDirty(); renderObjects(getTile(pos)); renderSchemaPreview(); });
+
+    // Save current tile (writes world to localStorage)
+    el('#saveTile').addEventListener('click', ()=>{
+      // Ensure tile exists, then persist
+      getTile(pos);
+      saveWorld();
+      dirty = false;
+      renderStatus();
+    });
+
+    // Export current tile as JSON file
+    el('#exportTile').addEventListener('click', ()=>{
+      const tile = getTile(pos);
+      const blob = new Blob([JSON.stringify(tile, null, 2)], {type:'application/json'});
+      download(fname(pos), blob);
+    });
+
+    // Export all tiles as a ZIP archive => world_tiles/*.json
+    el('#exportZip').addEventListener('click', async ()=>{
+      if(typeof JSZip === 'undefined'){ alert('ZIP library not loaded'); return; }
+      const zip = new JSZip();
+      const folder = zip.folder('world_tiles');
+      Object.entries(world).forEach(([key, tile])=>{
+        folder.file(key, JSON.stringify(tile, null, 2));
+      });
+      const blob = await zip.generateAsync({type:'blob'});
+      download('world_tiles.zip', blob);
+    });
+
+    // Import world from a JSON file (single tile, array of tiles, or full map)
+    el('#importWorld').addEventListener('change', async (e)=>{
+      const file = e.target.files[0]; if(!file) return;
+      const text = await file.text();
+      try {
+        const obj = JSON.parse(text);
+        if (Array.isArray(obj)) {
+          obj.forEach(t => {
+            if (t && t.coords) {
+              const key = `${pad(t.coords[0])}-${pad(t.coords[1])}-${pad(t.coords[2])}.json`;
+              world[key] = t;
+            }
+          });
+        } else if (obj.coords) {
+          const t = obj;
+          const key = `${pad(t.coords[0])}-${pad(t.coords[1])}-${pad(t.coords[2])}.json`;
+          world[key] = t;
+        } else {
+          world = obj;
+        }
+        saveWorld();
+        renderReadouts('Imported');
+        alert('Import complete.');
+      } catch(err){
+        alert('Import failed: ' + err.message);
+      }
+      e.target.value = '';
+    });
+
+    el('#clearWorld').addEventListener('click', ()=>{
+      if(confirm('Clear all tiles from localStorage?')){
+        world = {}; saveWorld(); renderReadouts('Cleared');
+      }
+    });
+
+    // ===== Init =====
+    renderReadouts('—');
+  </script>
+</body>
+</html>
