@@ -1,0 +1,20 @@
+{
+  "coords": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "last_move": null,
+  "exits": {
+    "n": true,
+    "ne": false,
+    "e": false,
+    "se": false,
+    "s": false,
+    "sw": false,
+    "w": false,
+    "nw": false
+  },
+  "description": "this room     is empty there is one door to the north ",
+  "saved_at": "2025-10-29T13:20:19.373905Z"
+}
