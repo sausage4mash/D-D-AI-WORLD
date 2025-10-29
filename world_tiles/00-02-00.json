@@ -10,10 +10,11 @@
     "ne": false,
     "e": false,
     "se": false,
-    "s": false,
+    "s": true,
     "sw": false,
     "w": false,
     "nw": false
   },
-  "saved_at": "2025-10-29T13:16:51.101418Z"
+  "description": "this is yet another room ",
+  "saved_at": "2025-10-29T16:42:03.435934Z"
 }
