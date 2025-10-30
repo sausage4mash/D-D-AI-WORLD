@@ -5,11 +5,11 @@ import os
 import json
 from datetime import datetime
 
-# Windows-only beep (safe no-op elsewhere)
+# Windows-only beep
 try:
     import winsound
     def beep():
-        winsound.Beep(880, 80)  # freq Hz, duration ms
+        winsound.Beep(880, 80)
 except Exception:
     def beep():
         pass
@@ -30,6 +30,10 @@ INK_DARK = (15, 20, 30)
 OK = (52, 211, 153)
 BOX = (70, 80, 100)
 WHITE = (235, 235, 235)
+WARN = (200, 80, 80)
+INPUT_BG = (50, 58, 75)
+INPUT_BORDER = (110, 120, 140)
+INPUT_ACTIVE_BORDER = (120, 200, 255)
 
 # --- Fonts ---
 font_big = pygame.font.SysFont(None, 100)
@@ -55,6 +59,17 @@ desc_active = False
 caret_visible = True
 caret_timer = 0
 
+# --- Items state ---
+items = []  # list of {"name":str,"desc":str,"contains":[...]}
+adding_mode = False          # are we showing the "Add Item" popup?
+adding_parent_path = []      # [] means top, [0,1] means inside that item
+new_item_name = ""
+new_item_desc = ""
+active_field = None          # "name", "desc", or None (for popup typing)
+
+# --- Scroll state for left column ---
+scroll_offset = 0  # shifts whole left column up/down
+
 def pad(n: int) -> str:
     return f"-{abs(n):02d}" if n < 0 else f"{n:02d}"
 
@@ -63,37 +78,113 @@ def coords_filename():
     os.makedirs(folder, exist_ok=True)
     return os.path.join(folder, f"{pad(x)}-{pad(y)}-{pad(z)}.json")
 
+def get_item_by_path(path):
+    """Return dict item at nested path like [0,1], else None."""
+    ref_list = items
+    current_item = None
+    for depth, idx in enumerate(path):
+        if not isinstance(ref_list, list):
+            return None
+        if idx < 0 or idx >= len(ref_list):
+            return None
+        current_item = ref_list[idx]
+        if depth < len(path) - 1:
+            if "contains" not in current_item or not isinstance(current_item["contains"], list):
+                return None
+            ref_list = current_item["contains"]
+    return current_item
+
+def add_item_under_path(parent_path, name, desc):
+    """Add new item at top-level ([]) or inside parent_path."""
+    name = name.strip()
+    if not name:
+        return False
+    new_obj = {
+        "name": name,
+        "desc": desc.strip(),
+        "contains": []
+    }
+    if parent_path == []:
+        items.append(new_obj)
+        return True
+    parent = get_item_by_path(parent_path)
+    if not parent:
+        return False
+    if "contains" not in parent or not isinstance(parent["contains"], list):
+        parent["contains"] = []
+    parent["contains"].append(new_obj)
+    return True
+
+def flatten_items_for_display(item_list, base_path, level, out):
+    """
+    Build a flat list for drawing:
+    row = { 'text': "...", 'path': [...], 'plus_rect': None }
+    """
+    for i, it in enumerate(item_list):
+        path = base_path + [i]
+        nm = it.get("name", "(no name)")
+        ds = it.get("desc", "").strip()
+        indent = "  " * level
+        if ds:
+            line_text = f"{indent}- {nm}: {ds}"
+        else:
+            line_text = f"{indent}- {nm}"
+        out.append({
+            "text": line_text,
+            "path": path,
+            "plus_rect": None,
+        })
+        kids = it.get("contains", [])
+        if isinstance(kids, list) and kids:
+            flatten_items_for_display(kids, path, level+1, out)
+
 def load_tile():
-    """Load exits/description/last_move from current coords file, or reset if none."""
-    global exits, description_text, last_move, save_message, save_message_ticks
+    """Load exits/description/items/last_move for this coord."""
+    global exits, description_text, last_move
+    global save_message, save_message_ticks
+    global items
+
     path = coords_filename()
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # keep a complete set of exits keys
+
             loaded_exits = data.get("exits", {})
-            exits = {d: bool(loaded_exits.get(d, False)) for d in EXIT_ORDER}
+            exits_new = {d: bool(loaded_exits.get(d, False)) for d in EXIT_ORDER}
+            exits.clear()
+            exits.update(exits_new)
+
             description_text = str(data.get("description", ""))
             last_move = data.get("last_move")
+
+            items_loaded = data.get("items", [])
+            if not isinstance(items_loaded, list):
+                items_loaded = []
+            items[:] = items_loaded
+
             save_message = f"Loaded from {path}"
             save_message_ticks = 120
         except Exception as e:
-            # on read/parse error, reset cleanly
-            exits = {d: False for d in EXIT_ORDER}
+            for k in EXIT_ORDER:
+                exits[k] = False
             description_text = ""
+            items[:] = []
             save_message = f"Load error: {e}"
             save_message_ticks = 180
     else:
-        exits = {d: False for d in EXIT_ORDER}
+        for k in EXIT_ORDER:
+            exits[k] = False
         description_text = ""
         last_move = None
+        items[:] = []
         save_message = "New room (no file yet)"
         save_message_ticks = 90
 
-# --- Button helper (edge-click support external) ---
-def draw_button(text, center, mouse_pos, *, fill_color=CYAN, hover_color=HOVER,
-                padding=(30, 16), radius=15, font=font_btn, disabled=False):
+def draw_button(text, center, mouse_pos, *,
+                fill_color=CYAN, hover_color=HOVER,
+                padding=(30,16), radius=15,
+                font=font_btn, disabled=False):
     label_color = INK_DARK if not disabled else (60, 60, 60)
     label = font.render(text, True, label_color)
     rect = label.get_rect(center=center).inflate(*padding)
@@ -105,7 +196,6 @@ def draw_button(text, center, mouse_pos, *, fill_color=CYAN, hover_color=HOVER,
     screen.blit(label, label.get_rect(center=rect.center))
     return rect
 
-# --- Compass helper ---
 DIRS = [
     ("n",  90,  (0, +1, 0)),
     ("ne", 45,  (+1, +1, 0)),
@@ -131,7 +221,10 @@ def draw_compass(center, radius, mouse_pos):
         pygame.draw.circle(screen, HOVER if hovered else CYAN, (bx, by), btn_radius)
         label = font_small.render(name, True, INK_DARK)
         screen.blit(label, label.get_rect(center=(bx, by)))
-        hit_rects[name] = pygame.Rect(bx - btn_radius, by - btn_radius, btn_radius*2, btn_radius*2)
+        hit_rects[name] = pygame.Rect(
+            bx - btn_radius, by - btn_radius,
+            btn_radius*2, btn_radius*2
+        )
 
     pygame.draw.circle(screen, GREY, center, 6)
     return hit_rects
@@ -143,15 +236,13 @@ def move_vector(name):
     return (0, 0, 0)
 
 def apply_move(name):
-    """Apply pending move to (x,y,z) and then load that room's JSON if present."""
     global x, y, z, last_move, pending_move
     dx, dy, dz = move_vector(name)
     x += dx; y += dy; z += dz
     last_move = name
     pending_move = None
-    load_tile()  # <-- auto-load data for the new room
+    load_tile()
 
-# --- Text wrapping for description box ---
 def wrap_text(text, font, max_width):
     lines = []
     for paragraph in text.split("\n"):
@@ -182,18 +273,20 @@ def save_tile():
         "last_move": last_move,
         "exits": exits,
         "description": description_text,
+        "items": items,
         "saved_at": datetime.utcnow().isoformat() + "Z",
     }
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     save_message = f"Saved to {path}"
-    save_message_ticks = 120  # ~2s
+    save_message_ticks = 120
 
-# --- Room editor (checkbox list) ---
-def draw_room_editor(x0, y0, mouse_pos):
+def draw_room_editor(x0, y0):
     panel_w, panel_h = 260, 240
-    pygame.draw.rect(screen, BOX, (x0, y0, panel_w, panel_h), border_radius=12)
-    pygame.draw.rect(screen, GREY, (x0, y0, panel_w, panel_h), width=2, border_radius=12)
+    rect_panel = pygame.Rect(x0, y0, panel_w, panel_h)
+
+    pygame.draw.rect(screen, BOX, rect_panel, border_radius=12)
+    pygame.draw.rect(screen, GREY, rect_panel, width=2, border_radius=12)
     title = font_small.render("Room Editor", True, WHITE)
     screen.blit(title, (x0 + 12, y0 + 10))
     sub = font_tiny.render("Exits (tick to allow):", True, GREY)
@@ -214,33 +307,38 @@ def draw_room_editor(x0, y0, mouse_pos):
             rect = pygame.Rect(cx, cy, box_size, box_size)
             pygame.draw.rect(screen, WHITE, rect, width=2, border_radius=4)
             if exits[d]:
-                pygame.draw.line(screen, WHITE, (cx+4, cy+10), (cx+9, cy+15), 2)
-                pygame.draw.line(screen, WHITE, (cx+9, cy+15), (cx+16, cy+5), 2)
+                pygame.draw.line(screen, WHITE, (cx+4, cy+10),
+                                 (cx+9, cy+15), 2)
+                pygame.draw.line(screen, WHITE, (cx+9, cy+15),
+                                 (cx+16, cy+5), 2)
             lab = font_tiny.render(d, True, WHITE)
             screen.blit(lab, (cx + box_size + 8, cy - 2))
             hit[d] = rect
-    return hit
+    return hit, rect_panel
 
-# --- Description box (below editor) ---
-def draw_description_box(x0, y0, w, h, mouse_pos):
+def draw_description_box(x0, y0, w, h):
+    """Draws the description area and returns its rect AND the 'Update' button rect."""
     global caret_visible, caret_timer
+    panel_rect = pygame.Rect(x0, y0, w, h)
+
     focused_col = (120, 200, 255) if desc_active else GREY
-    pygame.draw.rect(screen, BOX, (x0, y0, w, h), border_radius=12)
-    pygame.draw.rect(screen, focused_col, (x0, y0, w, h), width=2, border_radius=12)
+    pygame.draw.rect(screen, BOX, panel_rect, border_radius=12)
+    pygame.draw.rect(screen, focused_col, panel_rect, width=2, border_radius=12)
     label = font_small.render("Description", True, WHITE)
     screen.blit(label, (x0 + 12, y0 + 8))
 
     inner = pygame.Rect(x0 + 12, y0 + 40, w - 24, h - 52)
-    pygame.draw.rect(screen, (50, 58, 75), inner, border_radius=8)
-    pygame.draw.rect(screen, (110, 120, 140), inner, width=1, border_radius=8)
+    pygame.draw.rect(screen, INPUT_BG, inner, border_radius=8)
+    pygame.draw.rect(screen, INPUT_BORDER, inner, width=1, border_radius=8)
 
     lines = wrap_text(description_text, font_tiny, inner.w - 10)
-    y = inner.y + 6
+    y_cursor = inner.y + 6
     for line in lines[-200:]:
         img = font_tiny.render(line, True, WHITE)
-        screen.blit(img, (inner.x + 6, y))
-        y += img.get_height() + 2
+        screen.blit(img, (inner.x + 6, y_cursor))
+        y_cursor += img.get_height() + 2
 
+    # blink caret if active in desc
     caret_timer += clock.get_time()
     if caret_timer >= 500:
         caret_visible = not caret_visible
@@ -250,35 +348,232 @@ def draw_description_box(x0, y0, w, h, mouse_pos):
         last_line = lines[-1] if lines else ""
         caret_x = inner.x + 6 + font_tiny.size(last_line)[0]
         caret_y = inner.y + 6 + (len(lines)-1) * (font_tiny.get_height() + 2)
-        pygame.draw.line(screen, WHITE, (caret_x, caret_y), (caret_x, caret_y + font_tiny.get_height()), 1)
+        pygame.draw.line(
+            screen, WHITE,
+            (caret_x, caret_y),
+            (caret_x, caret_y + font_tiny.get_height()),
+            1
+        )
 
-    return pygame.Rect(x0, y0, w, h), inner
+    # "Update" button right under this box
+    update_center = (x0 + w//2, y0 + h + 30)
+    update_rect = draw_button(
+        "Update", update_center, pygame.mouse.get_pos(),
+        fill_color=CYAN, hover_color=HOVER,
+        padding=(20,10), radius=10, font=font_tiny
+    )
+
+    return panel_rect, update_rect
+
+def draw_items_panel(x0, y0, w, h):
+    """
+    Draw the items list with [+ New Item] and optional popup for adding.
+    Return click targets.
+    """
+    panel_rect = pygame.Rect(x0, y0, w, h)
+    pygame.draw.rect(screen, BOX, panel_rect, border_radius=12)
+    pygame.draw.rect(screen, GREY, panel_rect, width=2, border_radius=12)
+
+    title = font_small.render("Items", True, WHITE)
+    screen.blit(title, (x0 + 12, y0 + 10))
+
+    # [+ New Item] button
+    new_top_btn = pygame.Rect(x0 + w - 140, y0 + 8, 120, 28)
+    mouse_pos = pygame.mouse.get_pos()
+    hov_top = new_top_btn.collidepoint(mouse_pos)
+    pygame.draw.rect(screen, CYAN if hov_top else HOVER, new_top_btn, border_radius=6)
+    txt_new = font_tiny.render("+ New Item", True, INK_DARK)
+    screen.blit(txt_new, txt_new.get_rect(center=new_top_btn.center))
+
+    # list area
+    list_rect = pygame.Rect(x0 + 12, y0 + 48, w - 24, h - 60)
+    pygame.draw.rect(screen, INPUT_BG, list_rect, border_radius=6)
+    pygame.draw.rect(screen, INPUT_BORDER, list_rect, width=1, border_radius=6)
+
+    # flatten items for display
+    flat = []
+    flatten_items_for_display(items, [], 0, flat)
+
+    plus_buttons = []
+    row_y = list_rect.y + 6
+    row_x = list_rect.x + 6
+    row_h = font_tiny.get_height() + 8
+
+    for row in flat:
+        label_text = row["text"]
+        path = row["path"]
+
+        txt_img = font_tiny.render(label_text, True, WHITE)
+        screen.blit(txt_img, (row_x, row_y))
+
+        # small [+] for nesting
+        plus_rect = pygame.Rect(
+            row_x + txt_img.get_width() + 10,
+            row_y,
+            28,
+            22
+        )
+        row["plus_rect"] = plus_rect
+        hov_plus = plus_rect.collidepoint(mouse_pos)
+        pygame.draw.rect(screen, CYAN if hov_plus else HOVER, plus_rect, border_radius=4)
+        plus_label = font_tiny.render("+", True, INK_DARK)
+        screen.blit(plus_label, plus_label.get_rect(center=plus_rect.center))
+
+        plus_buttons.append((plus_rect, path))
+
+        row_y += row_h
+        if row_y > list_rect.bottom - row_h:
+            break
+
+    popup_info = None
+    if adding_mode:
+        popup_w = w - 40
+        popup_h = 160
+        popup_x = x0 + 20
+        popup_y = y0 + h//2 - popup_h//2
+        popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+
+        pygame.draw.rect(screen, BOX, popup_rect, border_radius=12)
+        pygame.draw.rect(screen, CYAN, popup_rect, width=2, border_radius=12)
+
+        ttl = font_small.render("Add Item", True, WHITE)
+        screen.blit(ttl, (popup_x + 12, popup_y + 8))
+
+        # Name field
+        name_label = font_tiny.render("Name:", True, GREY)
+        screen.blit(name_label, (popup_x + 12, popup_y + 40))
+        name_rect = pygame.Rect(popup_x + 80, popup_y + 36, popup_w - 92, 26)
+        pygame.draw.rect(screen, INPUT_BG, name_rect, border_radius=6)
+        pygame.draw.rect(
+            screen,
+            INPUT_ACTIVE_BORDER if active_field == "name" else INPUT_BORDER,
+            name_rect, width=1, border_radius=6
+        )
+        name_img = font_tiny.render(new_item_name, True, WHITE)
+        screen.blit(name_img, (name_rect.x + 6, name_rect.y + 4))
+
+        # Desc field
+        desc_label = font_tiny.render("Desc:", True, GREY)
+        screen.blit(desc_label, (popup_x + 12, popup_y + 74))
+        desc_rect = pygame.Rect(popup_x + 80, popup_y + 70, popup_w - 92, 40)
+        pygame.draw.rect(screen, INPUT_BG, desc_rect, border_radius=6)
+        pygame.draw.rect(
+            screen,
+            INPUT_ACTIVE_BORDER if active_field == "desc" else INPUT_BORDER,
+            desc_rect, width=1, border_radius=6
+        )
+
+        d_lines = wrap_text(new_item_desc, font_tiny, desc_rect.w - 10)
+        line_y = desc_rect.y + 4
+        for ln in d_lines[:3]:
+            img = font_tiny.render(ln, True, WHITE)
+            screen.blit(img, (desc_rect.x + 6, line_y))
+            line_y += font_tiny.get_height() + 2
+
+        # ADD / CANCEL buttons
+        add_btn = pygame.Rect(popup_x + popup_w - 180, popup_y + popup_h - 40, 80, 28)
+        cancel_btn = pygame.Rect(popup_x + popup_w - 90, popup_y + popup_h - 40, 80, 28)
+
+        for rct, label in [(add_btn,"Add"), (cancel_btn,"Cancel")]:
+            hov = rct.collidepoint(mouse_pos)
+            pygame.draw.rect(screen, CYAN if hov else HOVER, rct, border_radius=6)
+            txt = font_tiny.render(label, True, INK_DARK)
+            screen.blit(txt, txt.get_rect(center=rct.center))
+
+        popup_info = {
+            "popup_rect": popup_rect,
+            "name_rect": name_rect,
+            "desc_rect": desc_rect,
+            "add_btn": add_btn,
+            "cancel_btn": cancel_btn,
+        }
+
+    return {
+        "panel_rect": panel_rect,
+        "new_top_btn": new_top_btn,
+        "plus_buttons": plus_buttons,  # list of (rect,path)
+        "popup": popup_info,
+    }
+
+def shifted(rect, dy):
+    return pygame.Rect(rect.x, rect.y + dy, rect.w, rect.h)
 
 # --- Main loop ---
 running = True
-prev_mouse_pressed = False  # for edge-clicks
+prev_mouse_pressed = False
 
 while running:
-    mouse_pos = pygame.mouse.get_pos()
+    mouse_pos_raw = pygame.mouse.get_pos()
     mouse_pressed = pygame.mouse.get_pressed()[0]
-    clicked_this_frame = mouse_pressed and not prev_mouse_pressed  # edge
+    clicked_this_frame = mouse_pressed and not prev_mouse_pressed
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+
+        elif event.type == pygame.MOUSEWHEEL and current_screen == "map_builder":
+            scroll_offset += event.y * 40
+            if scroll_offset > 0:
+                scroll_offset = 0
+
         elif event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_ESCAPE, pygame.K_q):
                 running = False
-            elif current_screen == "map_builder" and desc_active:
-                if event.key == pygame.K_BACKSPACE:
-                    if description_text:
-                        description_text = description_text[:-1]
-                elif event.key == pygame.K_RETURN:
-                    description_text += "\n"
-                else:
-                    if event.unicode and (32 <= ord(event.unicode) <= 126 or ord(event.unicode) >= 160):
-                        if len(description_text) < 2000:
-                            description_text += event.unicode
+
+            elif current_screen == "map_builder":
+                # typing into room description (only if it's active AND not in item popup)
+                if desc_active and not adding_mode:
+                    if event.key == pygame.K_BACKSPACE:
+                        if description_text:
+                            description_text = description_text[:-1]
+                        continue
+                    elif event.key == pygame.K_RETURN:
+                        description_text += "\n"
+                        continue
+                    else:
+                        if event.unicode and (
+                            32 <= ord(event.unicode) <= 126 or ord(event.unicode) >= 160
+                        ):
+                            if len(description_text) < 2000:
+                                description_text += event.unicode
+                            continue
+
+                # typing into popup (adding item)
+                if adding_mode:
+                    if active_field == "name":
+                        if event.key == pygame.K_BACKSPACE:
+                            if new_item_name:
+                                new_item_name = new_item_name[:-1]
+                            continue
+                        elif event.key == pygame.K_RETURN:
+                            # jump to desc
+                            active_field = "desc"
+                            continue
+                        else:
+                            if event.unicode and (
+                                32 <= ord(event.unicode) <= 126 or ord(event.unicode) >= 160
+                            ):
+                                if len(new_item_name) < 60:
+                                    new_item_name += event.unicode
+                                continue
+
+                    elif active_field == "desc":
+                        if event.key == pygame.K_BACKSPACE:
+                            if new_item_desc:
+                                new_item_desc = new_item_desc[:-1]
+                            continue
+                        elif event.key == pygame.K_RETURN:
+                            # newline in description
+                            if len(new_item_desc) < 2000:
+                                new_item_desc += "\n"
+                            continue
+                        else:
+                            if event.unicode and (
+                                32 <= ord(event.unicode) <= 126 or ord(event.unicode) >= 160
+                            ):
+                                if len(new_item_desc) < 2000:
+                                    new_item_desc += event.unicode
+                                continue
 
     screen.fill(BG)
 
@@ -286,85 +581,201 @@ while running:
         title = font_big.render("Cog World", True, CYAN)
         screen.blit(title, title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 80)))
 
-        play_rect = draw_button("Map Builder", (WIDTH // 2, HEIGHT // 2 + 80), mouse_pos)
-        if clicked_this_frame and play_rect.collidepoint(mouse_pos):
+        play_rect = draw_button("Map Builder",
+                                (WIDTH // 2, HEIGHT // 2 + 80),
+                                mouse_pos_raw)
+        if clicked_this_frame and play_rect.collidepoint(mouse_pos_raw):
             current_screen = "map_builder"
-            load_tile()  # <-- load data for (0,0,0) or current coords on entry
+            load_tile()
 
         tip = font_small.render("Press ESC or Q to exit", True, GREY)
         screen.blit(tip, tip.get_rect(center=(WIDTH // 2, HEIGHT - 60)))
 
     elif current_screen == "map_builder":
-        # Header
+        # Header (fixed)
         title = font_big.render("Map Builder", True, CYAN)
         screen.blit(title, (40, 30))
 
-        # Back
-        back_rect = draw_button("Back", (WIDTH - 120, 50), mouse_pos, fill_color=CYAN, hover_color=HOVER,
-                                padding=(24, 10), font=font_small)
-        if clicked_this_frame and back_rect.collidepoint(mouse_pos):
+        back_rect = draw_button("Back",
+                                (WIDTH - 120, 50),
+                                mouse_pos_raw,
+                                fill_color=CYAN,
+                                hover_color=HOVER,
+                                padding=(24, 10),
+                                font=font_small)
+        if clicked_this_frame and back_rect.collidepoint(mouse_pos_raw):
             current_screen = "menu"
             desc_active = False
+            adding_mode = False
+            active_field = None
 
-        # Room editor (left)
-        editor_hit = draw_room_editor(40, 200, mouse_pos)
-        if clicked_this_frame:
-            for d, r in editor_hit.items():
-                if r.collidepoint(mouse_pos):
-                    exits[d] = not exits[d]
-                    beep()
-                    break
-
-        # Description box (left, under editor)
-        desc_panel_rect, _ = draw_description_box(40, 460, 260, 220, mouse_pos)
-        if clicked_this_frame:
-            if desc_panel_rect.collidepoint(mouse_pos):
-                if not desc_active:
-                    beep()
-                desc_active = True
-            else:
-                desc_active = False
-
-        # Coords + status
+        # Coords/status (fixed)
         coords_text = f"Coords: (x={x}, y={y}, z={z})"
         screen.blit(font_small.render(coords_text, True, OK), (40, 150))
 
-        status = f"Pending: {pending_move} (press Next to confirm)" if pending_move else "Click a direction"
+        status = (
+            f"Pending: {pending_move} (press Next to confirm)"
+            if pending_move else
+            "Click a direction"
+        )
         screen.blit(font_small.render(status, True, GREY), (320, 200))
 
-        # Compass (center-right)
+        scroll_hint = "Mouse wheel to scroll list"
+        screen.blit(font_tiny.render(scroll_hint, True, GREY), (40, 180))
+
+        # SCROLL COLUMN positions
+        y_room   = 200 + scroll_offset
+        y_desc   = 460 + scroll_offset
+        y_items  = 760 + scroll_offset  # moved down because Update button takes space now
+
+        # draw panels
+        editor_hit, editor_rect = draw_room_editor(40, y_room)
+        desc_panel_rect, update_rect = draw_description_box(40, y_desc, 260, 220)
+        items_panel_obj = draw_items_panel(40, y_items, 260, 260)
+
+        # Compass (fixed)
         compass_center = (WIDTH // 2 + 120, HEIGHT // 2 + 40)
-        hit_rects = draw_compass(compass_center, 140, mouse_pos)
+        hit_rects = draw_compass(compass_center, 140, mouse_pos_raw)
 
-        # Compass click -> set pending + beep
+        # handle clicks in scroll column
         if clicked_this_frame:
-            for name, r in hit_rects.items():
-                if r.collidepoint(mouse_pos):
-                    pending_move = name
+            # if popup is open handle popup first
+            if adding_mode and items_panel_obj["popup"]:
+                pop = items_panel_obj["popup"]
+                # click inside popup
+                if shifted(pop["name_rect"], 0).collidepoint(mouse_pos_raw):
+                    active_field = "name"
                     beep()
-                    break
+                elif shifted(pop["desc_rect"], 0).collidepoint(mouse_pos_raw):
+                    active_field = "desc"
+                    beep()
+                elif shifted(pop["add_btn"], 0).collidepoint(mouse_pos_raw):
+                    ok = add_item_under_path(
+                        adding_parent_path,
+                        new_item_name,
+                        new_item_desc
+                    )
+                    if ok:
+                        beep()
+                    # close popup either way
+                    adding_mode = False
+                    active_field = None
+                    new_item_name = ""
+                    new_item_desc = ""
+                    adding_parent_path = []
+                elif shifted(pop["cancel_btn"], 0).collidepoint(mouse_pos_raw):
+                    beep()
+                    adding_mode = False
+                    active_field = None
+                    new_item_name = ""
+                    new_item_desc = ""
+                    adding_parent_path = []
+                # click outside popup does nothing (popup stays until add/cancel)
 
-        # Bottom action row
+            else:
+                # CLICK: room desc box to start typing
+                if shifted(desc_panel_rect, 0).collidepoint(mouse_pos_raw):
+                    if not desc_active:
+                        beep()
+                    desc_active = True
+                    adding_mode = False
+                    active_field = None
+
+                # CLICK: Update button -> save_tile
+                elif shifted(update_rect, 0).collidepoint(mouse_pos_raw):
+                    save_tile()
+                    beep()
+
+                else:
+                    # CLICK: exits checkboxes
+                    did_click_exit = False
+                    for d, r in editor_hit.items():
+                        if shifted(r, 0).collidepoint(mouse_pos_raw):
+                            exits[d] = not exits[d]
+                            beep()
+                            did_click_exit = True
+                            break
+
+                    # CLICK: items panel (only if not exit click)
+                    if not did_click_exit:
+                        # [+ New Item] (top-level)
+                        if shifted(items_panel_obj["new_top_btn"], 0).collidepoint(mouse_pos_raw):
+                            beep()
+                            adding_mode = True
+                            adding_parent_path = []
+                            new_item_name = ""
+                            new_item_desc = ""
+                            active_field = "name"
+                            desc_active = False
+
+                        # [+] next to a specific item (nested)
+                        else:
+                            clicked_plus = False
+                            for pr, path in items_panel_obj["plus_buttons"]:
+                                if shifted(pr, 0).collidepoint(mouse_pos_raw):
+                                    beep()
+                                    adding_mode = True
+                                    adding_parent_path = path[:]
+                                    new_item_name = ""
+                                    new_item_desc = ""
+                                    active_field = "name"
+                                    desc_active = False
+                                    clicked_plus = True
+                                    break
+
+                            if not clicked_plus:
+                                # background click clears focus from desc
+                                desc_active = False
+                                active_field = None
+                                # (not opening popup, not typing anymore)
+
+                # CLICK: Compass directions (fixed)
+                for name, r in hit_rects.items():
+                    if r.collidepoint(mouse_pos_raw):
+                        pending_move = name
+                        beep()
+                        break
+
+        # Bottom row buttons (fixed)
         row_y = HEIGHT - 110
-        next_rect   = draw_button("Next",     (WIDTH // 2 - 260, row_y), mouse_pos,
-                                  disabled=(pending_move is None))
-        cancel_rect = draw_button("Cancel",   (WIDTH // 2,         row_y), mouse_pos,
-                                  fill_color=(150,150,150), hover_color=(180,180,180),
-                                  disabled=(pending_move is None))
-        save_rect   = draw_button("Save JSON",(WIDTH // 2 + 260,   row_y), mouse_pos)
+        next_rect   = draw_button(
+            "Next",
+            (WIDTH // 2 - 260, row_y),
+            mouse_pos_raw,
+            disabled=(pending_move is None)
+        )
+        cancel_rect = draw_button(
+            "Cancel",
+            (WIDTH // 2, row_y),
+            mouse_pos_raw,
+            fill_color=(150,150,150),
+            hover_color=(180,180,180),
+            padding=(30,16),
+            font=font_btn,
+            disabled=(pending_move is None)
+        )
+        save_rect   = draw_button(
+            "Save JSON",
+            (WIDTH // 2 + 260, row_y),
+            mouse_pos_raw
+        )
 
-        if clicked_this_frame and pending_move and next_rect.collidepoint(mouse_pos):
+        if clicked_this_frame and pending_move and next_rect.collidepoint(mouse_pos_raw):
             apply_move(pending_move)
 
-        if clicked_this_frame and pending_move and cancel_rect.collidepoint(mouse_pos):
+        if clicked_this_frame and pending_move and cancel_rect.collidepoint(mouse_pos_raw):
             pending_move = None
 
-        if clicked_this_frame and save_rect.collidepoint(mouse_pos):
+        if clicked_this_frame and save_rect.collidepoint(mouse_pos_raw):
             save_tile()
+            beep()
 
-        # Save/Load toast
+        # Toast (fixed)
         if save_message and save_message_ticks > 0:
-            toast = font_small.render(save_message, True, OK)
+            color_for_toast = OK
+            if save_message.startswith("Load error"):
+                color_for_toast = WARN
+            toast = font_small.render(save_message, True, color_for_toast)
             screen.blit(toast, toast.get_rect(center=(WIDTH // 2, HEIGHT - 170)))
             save_message_ticks -= 1
 

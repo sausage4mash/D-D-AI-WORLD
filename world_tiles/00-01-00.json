@@ -4,10 +4,10 @@
     "y": 1,
     "z": 0
   },
-  "last_move": "n",
+  "last_move": null,
   "exits": {
     "n": true,
-    "ne": true,
+    "ne": false,
     "e": false,
     "se": false,
     "s": false,
@@ -15,6 +15,19 @@
     "w": false,
     "nw": false
   },
-  "description": "we are in another room       \nexits are north or nort east",
-  "saved_at": "2025-10-29T13:26:22.406448Z"
+  "description": "another stone  room \nit smells of old socks",
+  "items": [
+    {
+      "name": "old rock",
+      "desc": "old rock with a flat top",
+      "contains": [
+        {
+          "name": "ring",
+          "desc": "a strange ring",
+          "contains": []
+        }
+      ]
+    }
+  ],
+  "saved_at": "2025-10-30T13:41:23.900174Z"
 }

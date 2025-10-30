@@ -15,6 +15,24 @@
     "w": false,
     "nw": false
   },
-  "description": "this room     is empty there is one door to the north ",
-  "saved_at": "2025-10-29T13:20:19.373905Z"
+  "description": "we are in a stone      \nroom , slime is on the  wall\nthere is a door to the north",
+  "items": [
+    {
+      "name": "trunk",
+      "desc": "old wooden trunk",
+      "contains": [
+        {
+          "name": "knife",
+          "desc": "silver knife",
+          "contains": []
+        },
+        {
+          "name": "gold coin",
+          "desc": "gold round old",
+          "contains": []
+        }
+      ]
+    }
+  ],
+  "saved_at": "2025-10-30T13:39:54.909239Z"
 }
