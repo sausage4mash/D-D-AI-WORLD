@@ -10,7 +10,7 @@
     "ne": false,
     "e": false,
     "se": false,
-    "s": false,
+    "s": true,
     "sw": false,
     "w": false,
     "nw": false
@@ -29,5 +29,5 @@
       ]
     }
   ],
-  "saved_at": "2025-10-30T13:41:23.900174Z"
+  "saved_at": "2025-11-01T15:38:31.884080Z"
 }
