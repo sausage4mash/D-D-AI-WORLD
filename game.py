@@ -3,6 +3,7 @@ import sys
 import math
 import os
 import json
+import subprocess
 from datetime import datetime
 
 # Windows-only beep
@@ -70,13 +71,16 @@ active_field = None          # "name", "desc", or None (for popup typing)
 # --- Scroll state for left column ---
 scroll_offset = 0  # shifts whole left column up/down
 
+
 def pad(n: int) -> str:
     return f"-{abs(n):02d}" if n < 0 else f"{n:02d}"
+
 
 def coords_filename():
     folder = "world_tiles"
     os.makedirs(folder, exist_ok=True)
     return os.path.join(folder, f"{pad(x)}-{pad(y)}-{pad(z)}.json")
+
 
 def get_item_by_path(path):
     """Return dict item at nested path like [0,1], else None."""
@@ -93,6 +97,7 @@ def get_item_by_path(path):
                 return None
             ref_list = current_item["contains"]
     return current_item
+
 
 def add_item_under_path(parent_path, name, desc):
     """Add new item at top-level ([]) or inside parent_path."""
@@ -114,6 +119,7 @@ def add_item_under_path(parent_path, name, desc):
         parent["contains"] = []
     parent["contains"].append(new_obj)
     return True
+
 
 def flatten_items_for_display(item_list, base_path, level, out):
     """
@@ -137,6 +143,7 @@ def flatten_items_for_display(item_list, base_path, level, out):
         kids = it.get("contains", [])
         if isinstance(kids, list) and kids:
             flatten_items_for_display(kids, path, level+1, out)
+
 
 def load_tile():
     """Load exits/description/items/last_move for this coord."""
@@ -181,6 +188,7 @@ def load_tile():
         save_message = "New room (no file yet)"
         save_message_ticks = 90
 
+
 def draw_button(text, center, mouse_pos, *,
                 fill_color=CYAN, hover_color=HOVER,
                 padding=(30,16), radius=15,
@@ -196,6 +204,7 @@ def draw_button(text, center, mouse_pos, *,
     screen.blit(label, label.get_rect(center=rect.center))
     return rect
 
+
 DIRS = [
     ("n",  90,  (0, +1, 0)),
     ("ne", 45,  (+1, +1, 0)),
@@ -206,6 +215,7 @@ DIRS = [
     ("w",  180, (-1, 0, 0)),
     ("nw", 135, (-1, +1, 0)),
 ]
+
 
 def draw_compass(center, radius, mouse_pos):
     cx, cy = center
@@ -229,19 +239,24 @@ def draw_compass(center, radius, mouse_pos):
     pygame.draw.circle(screen, GREY, center, 6)
     return hit_rects
 
+
 def move_vector(name):
     for nm, _, delta in DIRS:
         if nm == name:
             return delta
     return (0, 0, 0)
 
+
 def apply_move(name):
     global x, y, z, last_move, pending_move
     dx, dy, dz = move_vector(name)
-    x += dx; y += dy; z += dz
+    x += dx
+    y += dy
+    z += dz
     last_move = name
     pending_move = None
     load_tile()
+
 
 def wrap_text(text, font, max_width):
     lines = []
@@ -255,6 +270,7 @@ def wrap_text(text, font, max_width):
             else:
                 if line:
                     lines.append(line)
+                # if single word too long, hard wrap
                 while font.size(w)[0] > max_width and len(w) > 1:
                     cut = len(w)
                     while cut > 1 and font.size(w[:cut])[0] > max_width:
@@ -264,6 +280,7 @@ def wrap_text(text, font, max_width):
                 line = w
         lines.append(line)
     return lines
+
 
 def save_tile():
     global save_message, save_message_ticks
@@ -280,6 +297,7 @@ def save_tile():
         json.dump(data, f, ensure_ascii=False, indent=2)
     save_message = f"Saved to {path}"
     save_message_ticks = 120
+
 
 def draw_room_editor(x0, y0):
     panel_w, panel_h = 260, 240
@@ -315,6 +333,7 @@ def draw_room_editor(x0, y0):
             screen.blit(lab, (cx + box_size + 8, cy - 2))
             hit[d] = rect
     return hit, rect_panel
+
 
 def draw_description_box(x0, y0, w, h):
     """Draws the description area and returns its rect AND the 'Update' button rect."""
@@ -364,6 +383,7 @@ def draw_description_box(x0, y0, w, h):
     )
 
     return panel_rect, update_rect
+
 
 def draw_items_panel(x0, y0, w, h):
     """
@@ -474,10 +494,10 @@ def draw_items_panel(x0, y0, w, h):
         add_btn = pygame.Rect(popup_x + popup_w - 180, popup_y + popup_h - 40, 80, 28)
         cancel_btn = pygame.Rect(popup_x + popup_w - 90, popup_y + popup_h - 40, 80, 28)
 
-        for rct, label in [(add_btn,"Add"), (cancel_btn,"Cancel")]:
+        for rct, lbl in [(add_btn, "Add"), (cancel_btn, "Cancel")]:
             hov = rct.collidepoint(mouse_pos)
             pygame.draw.rect(screen, CYAN if hov else HOVER, rct, border_radius=6)
-            txt = font_tiny.render(label, True, INK_DARK)
+            txt = font_tiny.render(lbl, True, INK_DARK)
             screen.blit(txt, txt.get_rect(center=rct.center))
 
         popup_info = {
@@ -495,8 +515,10 @@ def draw_items_panel(x0, y0, w, h):
         "popup": popup_info,
     }
 
+
 def shifted(rect, dy):
     return pygame.Rect(rect.x, rect.y + dy, rect.w, rect.h)
+
 
 # --- Main loop ---
 running = True
@@ -577,32 +599,52 @@ while running:
 
     screen.fill(BG)
 
+    # ========== MENU SCREEN ==========
     if current_screen == "menu":
         title = font_big.render("Cog World", True, CYAN)
         screen.blit(title, title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 80)))
 
-        play_rect = draw_button("Map Builder",
-                                (WIDTH // 2, HEIGHT // 2 + 80),
-                                mouse_pos_raw)
-        if clicked_this_frame and play_rect.collidepoint(mouse_pos_raw):
+        # Button: launch main game
+        play_rect_main = draw_button(
+            "The Game Cog World",
+            (WIDTH // 2, HEIGHT // 2 + 10),
+            mouse_pos_raw
+        )
+        if clicked_this_frame and play_rect_main.collidepoint(mouse_pos_raw):
+            # Launch game-main.py with same Python interpreter
+            subprocess.Popen([sys.executable, "game-main.py"])
+            # Quit this script
+            pygame.quit()
+            sys.exit()
+
+        # Button: go to Map Builder
+        play_rect_builder = draw_button(
+            "Map Builder",
+            (WIDTH // 2, HEIGHT // 2 + 80),
+            mouse_pos_raw
+        )
+        if clicked_this_frame and play_rect_builder.collidepoint(mouse_pos_raw):
             current_screen = "map_builder"
             load_tile()
 
         tip = font_small.render("Press ESC or Q to exit", True, GREY)
         screen.blit(tip, tip.get_rect(center=(WIDTH // 2, HEIGHT - 60)))
 
+    # ========== MAP BUILDER SCREEN ==========
     elif current_screen == "map_builder":
         # Header (fixed)
         title = font_big.render("Map Builder", True, CYAN)
         screen.blit(title, (40, 30))
 
-        back_rect = draw_button("Back",
-                                (WIDTH - 120, 50),
-                                mouse_pos_raw,
-                                fill_color=CYAN,
-                                hover_color=HOVER,
-                                padding=(24, 10),
-                                font=font_small)
+        back_rect = draw_button(
+            "Back",
+            (WIDTH - 120, 50),
+            mouse_pos_raw,
+            fill_color=CYAN,
+            hover_color=HOVER,
+            padding=(24, 10),
+            font=font_small
+        )
         if clicked_this_frame and back_rect.collidepoint(mouse_pos_raw):
             current_screen = "menu"
             desc_active = False
@@ -646,9 +688,11 @@ while running:
                 if shifted(pop["name_rect"], 0).collidepoint(mouse_pos_raw):
                     active_field = "name"
                     beep()
+
                 elif shifted(pop["desc_rect"], 0).collidepoint(mouse_pos_raw):
                     active_field = "desc"
                     beep()
+
                 elif shifted(pop["add_btn"], 0).collidepoint(mouse_pos_raw):
                     ok = add_item_under_path(
                         adding_parent_path,
@@ -663,6 +707,7 @@ while running:
                     new_item_name = ""
                     new_item_desc = ""
                     adding_parent_path = []
+
                 elif shifted(pop["cancel_btn"], 0).collidepoint(mouse_pos_raw):
                     beep()
                     adding_mode = False
@@ -738,7 +783,7 @@ while running:
 
         # Bottom row buttons (fixed)
         row_y = HEIGHT - 110
-        next_rect   = draw_button(
+        next_rect = draw_button(
             "Next",
             (WIDTH // 2 - 260, row_y),
             mouse_pos_raw,
@@ -754,7 +799,7 @@ while running:
             font=font_btn,
             disabled=(pending_move is None)
         )
-        save_rect   = draw_button(
+        save_rect = draw_button(
             "Save JSON",
             (WIDTH // 2 + 260, row_y),
             mouse_pos_raw

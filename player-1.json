@@ -1,0 +1,31 @@
+{
+  "name": "Player One",
+  "stats": {
+    "health": 100
+  },
+  "position": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "inventory": [
+    {
+      "name": "torch",
+      "desc": "A simple wooden torch, unlit.",
+      "quantity": 1
+    },
+    {
+      "name": "map",
+      "desc": "A crumpled sketch of the nearby rooms.",
+      "quantity": 1
+    },
+    {
+      "name": "gold coin",
+      "desc": "gold round old",
+      "contains": []
+    }
+  ],
+  "meta": {
+    "last_save": "2025-11-01T11:36:06.894078Z"
+  }
+}
