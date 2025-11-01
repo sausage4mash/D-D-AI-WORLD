@@ -15,7 +15,7 @@
     "w": false,
     "nw": false
   },
-  "description": "we are in a stone      \nroom , slime is on the  wall\nthere is a door to the north",
+  "description": "You find yourself in a damp stone chamber, its cold walls slick with trails of green slime that glisten faintly in the dim light. The air smells of earth and mildew, and somewhere in the distance, you can hear the slow drip of water echoing through unseen corridors. A heavy wooden door, swollen with age, stands to the north — its iron hinges streaked with rust.",
   "items": [
     {
       "name": "trunk",

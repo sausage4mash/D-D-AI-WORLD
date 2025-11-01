@@ -225,15 +225,56 @@ def try_move(direction):
 # RENDERING
 # -------------------------
 
+def wrap_text(text, font, max_width):
+    words = text.split(' ')
+    lines = []
+    current_line = []
+    current_width = 0
+    
+    for word in words:
+        word_surface = font.render(word, True, (0, 0, 0))
+        word_width = word_surface.get_width()
+        
+        if current_width + word_width <= max_width:
+            current_line.append(word)
+            current_width += word_width + font.size(' ')[0]
+        else:
+            lines.append(' '.join(current_line))
+            current_line = [word]
+            current_width = word_width
+    
+    if current_line:
+        lines.append(' '.join(current_line))
+    
+    return lines if lines else [text]
+
 def draw_text_block(lines, x, y, w, h, font, color=(220,220,220)):
+    # We build a new list of *wrapped* lines first.
+    wrapped_lines = []
+    usable_width = w - 16  # padding so text isn't right against border
+
+    for entry in lines:
+        # make sure it's a string
+        if not isinstance(entry, str):
+            entry = str(entry)
+
+        # split into wrapped sub-lines
+        sublines = wrap_text(entry, font, usable_width)
+        wrapped_lines.extend(sublines)
+
+    # Now we figure out which of those wrapped lines can fit vertically.
     visible_lines = []
     total_h = 0
     line_h = font.get_height() + 4
-    for line in reversed(lines):
+
+    # we go from the bottom (latest messages) upward, like a console log
+    for line in reversed(wrapped_lines):
         if total_h + line_h > h:
             break
         visible_lines.append(line)
         total_h += line_h
+
+    # draw them bottom-up
     draw_y = y + h - line_h
     for line in visible_lines:
         img = font.render(line, True, color)
